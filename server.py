@@ -1,6 +1,6 @@
 #  coding: utf-8 
 import socketserver
-
+import os
 # Copyright 2013 Abram Hindle, Eddie Antonio Santos
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -27,13 +27,65 @@ import socketserver
 # try: curl -v -X GET http://127.0.0.1:8080/
 
 
+# for sending http response :https://stackoverflow.com/questions/10114224/how-to-properly-send-http-response-with-python-using-socket-library-only
+# and https://developer.mozilla.org/en-US/docs/Web/HTTP/Status
+
 class MyWebServer(socketserver.BaseRequestHandler):
+    
     
     def handle(self):
         self.data = self.request.recv(1024).strip()
-        print ("Got a request of: %s\n" % self.data)
-        self.request.sendall(bytearray("OK",'utf-8'))
-
+        if self.data != "":
+            if self.data.split()[0].decode() == "GET":
+                self.handle_get(self.data)
+            #if not a get request send 405
+            else:
+                self.request.sendall(b"HTTP/1.1 405 Method Not Allowed\r\nAllow: GET\r\n\r\nContent-length:0")
+            
+        return
+                
+                    
+    # handle the get request
+    def handle_get(self, data):
+        dir = os.path.join(os.getcwd(), "www")
+        path = data.split()[1].decode()
+        # append path to cwd
+        if (path[0] != "/"):
+            file = os.path.join(dir, path)
+        else:
+            file = os.path.join(dir, path[1:])
+        file_correct = os.path.realpath(file)
+        
+        #check if file path is inside the www folder, this is just to handle cases where there are links in the request
+        if os.path.commonprefix([dir, file_correct]) != dir:
+            self.request.sendall(b"HTTP/1.1 404 Not Found\r\nContent-length:0")
+            return
+        
+        if(file.endswith("/")):
+            file_correct = file_correct + "/"
+        #check if file is a directory
+        if(os.path.isdir(file_correct) and file_correct.endswith("/")):
+            file_correct = os.path.join(file_correct,"index.html")
+        # if still a directory send 301
+        if(os.path.isdir(file_correct)):
+            self.request.sendall(bytearray(f"HTTP/1.1 301 Moved Permanently\r\n Location: {file_correct}\r\nContent-length:0\r\nConnection: close",'utf-8'))
+            return
+        #if file doesnt exist send 404
+        if(not os.path.exists(file_correct)):
+            self.request.sendall(b"HTTP/1.1 404 Not Found\r\nContent-length:0")
+            return
+        #if file exists send content
+        f = open(file_correct, "r")
+        content = f.read()
+        if (file_correct.endswith(".html")):
+            self.request.sendall(bytearray("HTTP/1.1 200 OK\r\nContent-length:" + str(len(content)) + "\r\nContent-Type: text/html\r\n\r\n" + content,'utf-8'))
+        else:
+            self.request.sendall(bytearray("HTTP/1.1 200 OK\r\nContent-length:" + str(len(content)) + "\r\nContent-Type: text/css\r\n\r\n" + content,'utf-8'))
+        
+        
+        
+        
+        
 if __name__ == "__main__":
     HOST, PORT = "localhost", 8080
 
